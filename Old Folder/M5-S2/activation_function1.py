@@ -1,0 +1,210 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import time 
+
+def init_params():
+    # He initialization
+    W1 = np.random.randn(128, 784) * np.sqrt(2 / 784)
+    b1 = np.zeros((128, 1))
+    W2 = np.random.randn(10, 128) * np.sqrt(2 / 128)
+    b2 = np.zeros((10, 1))
+    return W1, b1, W2, b2
+
+def relu(z):
+    return np.maximum(z, 0)
+
+def deriv_relu(z):
+    return z > 0
+
+def tanh(z):
+    return np.tanh(z)
+
+def tanh_derivative(z):
+    return 1 - np.tanh(z)**2
+
+def sigmoid(z):
+    return 1 / (1 + np.exp(-z))
+
+def sigmoid_derivative(z):
+    s = sigmoid(z)
+    return s * (1 - s)
+
+def softmax(z):
+    z = z - np.max(z, axis=0, keepdims=True)  # Numerical stability
+    return np.exp(z) / np.sum(np.exp(z), axis=0, keepdims=True)
+
+def compute_loss(A2, Y, W1, W2, lambd):
+    m = Y.size
+    one_hot_Y = one_hot(Y)
+    log_probs = -np.log(A2[Y, np.arange(m)] + 1e-8)  # เพิ่ม epsilon เพื่อป้องกัน log(0)
+    data_loss = np.sum(log_probs) / m
+    # Add L2 regularization
+    reg_loss = (lambd / (2 * m)) * (np.sum(W1**2) + np.sum(W2**2))
+    return data_loss + reg_loss
+
+def forward_prop(W1, b1, W2, b2, X):
+    Z1 = W1.dot(X) + b1
+    A1 = sigmoid(Z1)
+    Z2 = W2.dot(A1) + b2
+    A2 = softmax(Z2)
+    return Z1, A1, Z2, A2
+
+def back_prop(Z1, A1, Z2, A2, W1, W2, X, Y, lambd):
+    m = Y.size
+    one_hot_Y = one_hot(Y)
+    dZ2 = A2 - one_hot_Y
+    dW2 = 1/m * np.dot(dZ2, A1.T) + (lambd / m) * W2
+    db2 = 1/m * np.sum(dZ2, axis=1, keepdims=True)
+    dZ1 = np.dot(W2.T, dZ2) * sigmoid_derivative(Z1)
+    dW1 = 1/m * np.dot(dZ1, X.T) + (lambd / m) * W1
+    db1 = 1/m * np.sum(dZ1, axis=1, keepdims=True)
+    return dW1, db1, dW2, db2
+
+def one_hot(Y):
+    num_classes = 10  # แก้ให้เป็น 10 คลาสสำหรับ digits 0-9
+    one_hot_Y = np.zeros((num_classes, Y.size))
+    one_hot_Y[Y, np.arange(Y.size)] = 1
+    return one_hot_Y
+
+def update_params(W1, b1, W2, b2, dW1, db1, dW2, db2, alpha):
+    W1 -= alpha * dW1
+    b1 -= alpha * db1
+    W2 -= alpha * dW2
+    b2 -= alpha * db2
+    return W1, b1, W2, b2
+
+def get_accuracy(predictions, Y):
+    return np.sum(predictions == Y) / len(Y)
+
+def get_predictions(A2):
+    return np.argmax(A2, axis=0)
+
+def gradient_descent(X, Y, alpha, n_iters, batch_size, lambd):
+    W1, b1, W2, b2 = init_params()
+    m = X.shape[1]
+    accuracy_list = []
+    loss_list = []
+    iteration_list = []
+    
+    # ตัวแปรสำหรับติดตามเวลา
+    epoch_times = []
+    total_start_time = time.time()
+    target_accuracy = 0.95
+    reached_target = False
+    final_epoch = 0
+
+    for i in range(n_iters + 1):
+        epoch_start_time = time.time()
+        
+        # Mini-batch gradient descent
+        for j in range(0, m, batch_size):
+            X_batch = X[:, j:j+batch_size]
+            Y_batch = Y[j:j+batch_size]
+
+            Z1, A1, Z2, A2 = forward_prop(W1, b1, W2, b2, X_batch)
+            dW1, db1, dW2, db2 = back_prop(Z1, A1, Z2, A2, W1, W2, X_batch, Y_batch, lambd)
+            W1, b1, W2, b2 = update_params(W1, b1, W2, b2, dW1, db1, dW2, db2, alpha)
+
+        epoch_time = time.time() - epoch_start_time
+        epoch_times.append(epoch_time)
+        
+        # Monitor performance
+        if i % 10 == 0:
+            Z1, A1, Z2, A2 = forward_prop(W1, b1, W2, b2, X)
+            predictions = get_predictions(A2)
+            accuracy = get_accuracy(predictions, Y)
+            loss = compute_loss(A2, Y, W1, W2, lambd)
+            accuracy_list.append(accuracy)
+            loss_list.append(loss)
+            iteration_list.append(i)
+            print(f"Iteration {i:4d} | Loss: {loss:.4f} | Accuracy: {(accuracy*100):6.2f}% | Time/epoch: {epoch_time:.4f}s")
+            
+            # ตรวจสอบว่า accuracy ถึง 94% หรือยัง
+            if accuracy >= target_accuracy and not reached_target:
+                reached_target = True
+                final_epoch = i
+                total_time = time.time() - total_start_time
+                avg_time_per_epoch = np.mean(epoch_times)
+                print(f"\n{'='*70}")
+                print(f"Accuracy {(accuracy*100):.2f}% ที่ epoch {i}")
+                print(f"เวลาทั้งหมด: {total_time:.2f} วินาที ({total_time/60:.2f} นาที)")
+                print(f"เวลาเฉลี่ยต่อ epoch: {avg_time_per_epoch:.4f} วินาที")
+                print(f"จำนวน epoch ทั้งหมด: {i}")
+                print(f"{'='*70}\n")
+                break
+
+        # Learning rate decay
+        alpha = alpha * (1 / (1 + 0.001 * i))
+    
+    # แสดงสรุปหากไม่ถึง 94%
+    if not reached_target:
+        total_time = time.time() - total_start_time
+        avg_time_per_epoch = np.mean(epoch_times)
+        final_accuracy = accuracy_list[-1] if accuracy_list else 0
+        final_epoch = n_iters
+        print(f"\n{'='*70}")
+        print(f"ฝึกครบ {n_iters} epochs แต่ยังไม่ถึง 94%")
+        print(f"Accuracy สูงสุด: {(final_accuracy*100):.2f}%")
+        print(f"เวลาทั้งหมด: {total_time:.2f} วินาที ({total_time/60:.2f} นาที)")
+        print(f"เวลาเฉลี่ยต่อ epoch: {avg_time_per_epoch:.4f} วินาที")
+        print(f"จำนวน epoch ทั้งหมด: {n_iters}")
+        print(f"{'='*70}\n")
+
+    # Plot accuracy and loss
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(iteration_list, accuracy_list, label="Accuracy", marker='o', markersize=4)
+    plt.axhline(y=0.95, color='r', linestyle='--', label='Target (95%)')
+    plt.xlabel("Iterations")
+    plt.ylabel("Accuracy")
+    plt.title("Accuracy over Iterations")
+    plt.grid(alpha=0.3)
+    plt.legend()
+
+    plt.subplot(1, 2, 2)
+    plt.plot(iteration_list, loss_list, label="Loss", color="red", marker='o', markersize=4)
+    plt.xlabel("Iterations")
+    plt.ylabel("Loss")
+    plt.title("Loss over Iterations")
+    plt.grid(alpha=0.3)
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig('/home/claude/training_progress.png', dpi=150, bbox_inches='tight')
+    plt.show()
+
+    return W1, b1, W2, b2
+
+# Load and preprocess data
+print("Loading and preprocessing data...")
+data = pd.read_csv('digit-recognizer/train.csv').to_numpy()
+np.random.shuffle(data)
+
+m, n = data.shape
+data_dev = data[:1000].T
+Y_dev = data_dev[0].astype(int)  # แปลงเป็น int
+X_dev = data_dev[1:] / 255.0
+
+data_train = data[1000:].T
+Y_train = data_train[0].astype(int)  # แปลงเป็น int
+X_train = data_train[1:] / 255.0
+
+print(f"Training set size: {X_train.shape[1]} samples")
+print(f"Development set size: {X_dev.shape[1]} samples")
+print(f"\n{'='*70}")
+print("Starting training... (Target: 95% accuracy)")
+print(f"{'='*70}\n")
+
+# Train the model
+W1, b1, W2, b2 = gradient_descent(X_train, Y_train, alpha=0.5, n_iters=1000, batch_size=64, lambd=0.1)
+
+# Evaluate on the development set
+print("\n" + "="*70)
+print("Evaluating on Development Set...")
+print("="*70)
+Z1, A1, Z2, A2 = forward_prop(W1, b1, W2, b2, X_dev)
+dev_predictions = get_predictions(A2)
+dev_accuracy = get_accuracy(dev_predictions, Y_dev)
+print(f"Development Set Accuracy: {(dev_accuracy*100):.2f}%")
+print("="*70)
